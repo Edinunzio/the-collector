@@ -1,6 +1,13 @@
 -- The Collector: initial schema
 -- Requires Postgres 12+ for GENERATED ALWAYS AS STORED columns
 
+-- Track applied migration files. The runner inserts into this table
+-- after successfully applying each .sql file, then skips files already recorded.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    filename TEXT PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS pages (
     id              SERIAL PRIMARY KEY,
     url             TEXT UNIQUE NOT NULL,
@@ -25,7 +32,6 @@ CREATE TABLE IF NOT EXISTS pages (
 CREATE INDEX IF NOT EXISTS pages_search_idx    ON pages USING GIN(search_vector);
 CREATE INDEX IF NOT EXISTS pages_domain_idx    ON pages(domain);
 CREATE INDEX IF NOT EXISTS pages_recrawl_idx   ON pages(next_crawl_at) WHERE status = 'active';
-CREATE INDEX IF NOT EXISTS pages_status_idx    ON pages(status);
 
 
 CREATE TABLE IF NOT EXISTS quarantine (
@@ -52,6 +58,9 @@ CREATE TABLE IF NOT EXISTS crawl_queue (
     depth           INTEGER NOT NULL DEFAULT 0,
     status          TEXT NOT NULL DEFAULT 'pending',  -- pending | in_progress | done | failed
     attempts        INTEGER NOT NULL DEFAULT 0,
+    last_error      TEXT,
+    claimed_at      TIMESTAMPTZ,
+    claimed_by      TEXT,
     queued_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -92,5 +101,3 @@ CREATE TABLE IF NOT EXISTS blocked_domains (
     source     TEXT NOT NULL DEFAULT 'manual',  -- manual | auto
     blocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS blocked_domains_lookup_idx ON blocked_domains(domain);
