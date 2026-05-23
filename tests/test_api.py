@@ -97,3 +97,46 @@ async def test_search_pagination(client: AsyncClient, api_db: asyncpg.Connection
 async def test_search_requires_query(client: AsyncClient):
     resp = await client.get("/search")
     assert resp.status_code == 422  # missing required param
+
+
+# --- /seeds ---
+
+async def test_add_seed(client: AsyncClient, api_db: asyncpg.Connection):
+    resp = await client.post(
+        "/seeds", json={"url": "http://tilde.town", "label": "Tilde Town"}
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["url"] == "http://tilde.town"
+
+
+async def test_list_seeds(client: AsyncClient, api_db: asyncpg.Connection):
+    await api_db.execute(
+        "INSERT INTO seeds (url, label) VALUES ($1, $2)",
+        "http://neocities.org", "Neocities"
+    )
+    resp = await client.get("/seeds")
+    assert resp.status_code == 200
+    assert len(resp.json()) >= 1
+
+
+async def test_bulk_seed_import(client: AsyncClient, api_db: asyncpg.Connection, tmp_path):
+    seeds_file = tmp_path / "seeds.txt"
+    seeds_file.write_text(
+        "# Comment line\nhttp://example1.com\nhttp://example2.com\n"
+    )
+    resp = await client.post(
+        "/seeds/bulk",
+        json={"file_path": str(seeds_file)},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["added"] == 2
+
+
+# --- /crawl ---
+
+async def test_crawl_status(client: AsyncClient):
+    resp = await client.get("/crawl/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "running" in data
