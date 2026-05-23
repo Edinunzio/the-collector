@@ -14,10 +14,26 @@ import asyncpg
 import pytest
 from pathlib import Path
 
-TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL",
-    "postgresql://collector:collector@localhost:5432/collector_test",
-)
+def _derive_test_url() -> str:
+    """
+    Default TEST_DATABASE_URL.
+
+    Priority:
+    1. Explicit TEST_DATABASE_URL env var
+    2. Swap database name in DATABASE_URL (so it works inside Docker where host is `db`)
+    3. Fallback to localhost
+    """
+    explicit = os.environ.get("TEST_DATABASE_URL")
+    if explicit:
+        return explicit
+    prod = os.environ.get("DATABASE_URL")
+    if prod:
+        # postgresql://user:pass@host:port/dbname  →  .../collector_test
+        return prod.rsplit("/", 1)[0] + "/collector_test"
+    return "postgresql://collector:collector@localhost:5432/collector_test"
+
+
+TEST_DATABASE_URL = _derive_test_url()
 
 
 @pytest.fixture(scope="session")
