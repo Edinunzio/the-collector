@@ -6,3 +6,5 @@ __pycache__/
 *.db
 .venv/
 venv/
+celerybeat-schedule
+celerybeat-schedule.*
