@@ -1,0 +1,7 @@
+# Hand-curated old-web seeds — one URL per line, # for comments
+https://neocities.org/browse
+https://tilde.town
+https://wiby.me/surprise/
+https://curlie.org
+https://indieweb.org/directory
+https://ooh.directory
