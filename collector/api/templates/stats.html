@@ -26,4 +26,25 @@
     {% if crawl.running %}Crawl already running{% else %}Start crawl{% endif %}
   </button>
 </form>
+
+<h2 style="margin-top: 2em;">Internet Archive CDX import</h2>
+<p class="meta">Pull URLs from the Wayback Machine that returned HTTP 200 between two years. These are live old-web pages no modern link graph connects to. The import runs in the background and enqueues URLs for crawling.</p>
+{% if cdx_message %}<div class="stats" style="background: #e8f5e8; border-color: #88aa88;">{{ cdx_message }}</div>{% endif %}
+<form action="/ui/cdx-import" method="post" style="padding: 1em; background: #f4f4ec; border: 1px solid #ddd;">
+  <div style="display: flex; gap: 1em; align-items: flex-end; flex-wrap: wrap;">
+    <div>
+      <label for="from_year" style="display: block; font-weight: bold; margin-bottom: 0.3em;">From year</label>
+      <input type="number" name="from_year" id="from_year" value="1996" min="1996" max="2024" style="padding: 0.4em; width: 6em; font-family: inherit; border: 1px solid #888;">
+    </div>
+    <div>
+      <label for="to_year" style="display: block; font-weight: bold; margin-bottom: 0.3em;">To year</label>
+      <input type="number" name="to_year" id="to_year" value="2002" min="1996" max="2024" style="padding: 0.4em; width: 6em; font-family: inherit; border: 1px solid #888;">
+    </div>
+    <div>
+      <label for="limit" style="display: block; font-weight: bold; margin-bottom: 0.3em;">Limit</label>
+      <input type="number" name="limit" id="limit" value="1000" min="10" max="50000" style="padding: 0.4em; width: 6em; font-family: inherit; border: 1px solid #888;">
+    </div>
+    <button type="submit" style="padding: 0.55em 1.2em; font-size: 1em; font-family: inherit; border: 1px solid #555; background: #eee; cursor: pointer;">Import from CDX</button>
+  </div>
+</form>
 {% endblock %}

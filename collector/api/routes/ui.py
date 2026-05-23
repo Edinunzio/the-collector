@@ -7,7 +7,7 @@ The UI calls the existing JSON routes via internal function calls
 """
 from __future__ import annotations
 from pathlib import Path
-from fastapi import APIRouter, Request, Query, BackgroundTasks
+from fastapi import APIRouter, Request, Query, BackgroundTasks, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -19,6 +19,15 @@ from collector.api.routes.quarantine import (
     approve_quarantine as approve_route,
     reject_quarantine as reject_route,
     rescore_quarantine as rescore_route,
+)
+from collector.api.routes.seeds import (
+    add_seed as add_seed_route,
+    list_seeds as list_seeds_route,
+    SeedIn,
+)
+from collector.api.routes.tasks import (
+    trigger_cdx_import as trigger_cdx_route,
+    CDXImportRequest,
 )
 import collector.api.routes.crawl as crawl_module
 
@@ -63,13 +72,13 @@ async def home(
 
 
 @router.get("/ui/stats", response_class=HTMLResponse)
-async def ui_stats(request: Request):
+async def ui_stats(request: Request, cdx_message: str | None = None):
     stats_data = await stats_route()
     crawl_data = await crawl_status_route()
     return templates.TemplateResponse(
         request,
         "stats.html",
-        {"stats": stats_data, "crawl": crawl_data},
+        {"stats": stats_data, "crawl": crawl_data, "cdx_message": cdx_message},
     )
 
 
@@ -79,6 +88,48 @@ async def ui_crawl_start(background_tasks: BackgroundTasks):
     if not crawl_module._crawl_running:
         background_tasks.add_task(_run_crawl)
     return RedirectResponse(url="/ui/stats", status_code=303)
+
+
+@router.post("/ui/cdx-import")
+async def ui_cdx_import(
+    background_tasks: BackgroundTasks,
+    from_year: int = Form(1996),
+    to_year: int = Form(2008),
+    limit: int = Form(1000),
+):
+    """Trigger CDX API import from the stats page."""
+    await trigger_cdx_route(
+        CDXImportRequest(from_year=from_year, to_year=to_year, limit=limit),
+        background_tasks,
+    )
+    msg = f"CDX import started: {from_year}–{to_year}, limit {limit}. URLs will appear in the queue shortly."
+    from urllib.parse import quote
+    return RedirectResponse(url=f"/ui/stats?cdx_message={quote(msg)}", status_code=303)
+
+
+# --- Seeds ---
+
+@router.get("/ui/seeds", response_class=HTMLResponse)
+async def ui_seeds(request: Request, message: str | None = None):
+    seeds = await list_seeds_route()
+    return templates.TemplateResponse(
+        request,
+        "seeds.html",
+        {"seeds": seeds, "message": message},
+    )
+
+
+@router.post("/ui/seeds")
+async def ui_seeds_add(
+    url: str = Form(...),
+    label: str | None = Form(None),
+):
+    """Add a seed via form, redirect back with a success message."""
+    label = (label or "").strip() or None
+    await add_seed_route(SeedIn(url=url.strip(), label=label))
+    from urllib.parse import quote
+    msg = f"Added {url} to seeds + crawl queue."
+    return RedirectResponse(url=f"/ui/seeds?message={quote(msg)}", status_code=303)
 
 
 @router.get("/ui/quarantine", response_class=HTMLResponse)

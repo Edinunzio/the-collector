@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Seeds — The Collector{% endblock %}
+{% block content %}
+<h2>Seeds</h2>
+<p class="meta">Hand-curated starting points for the crawler. Seeds are the highest signal-to-noise source — drop a URL in when you stumble on something good and the crawl spider expands from there.</p>
+
+{% if message %}
+  <div class="stats" style="background: #e8f5e8; border-color: #88aa88;">{{ message }}</div>
+{% endif %}
+
+<form action="/ui/seeds" method="post" style="margin: 1.5em 0; padding: 1em; background: #f4f4ec; border: 1px solid #ddd;">
+  <div style="margin-bottom: 0.6em;">
+    <label for="url" style="display: block; font-weight: bold; margin-bottom: 0.3em;">URL</label>
+    <input type="text" name="url" id="url" required placeholder="https://example.com" style="width: 100%; padding: 0.5em; font-family: inherit; font-size: 1em; border: 1px solid #888;" autofocus>
+  </div>
+  <div style="margin-bottom: 0.8em;">
+    <label for="label" style="display: block; font-weight: bold; margin-bottom: 0.3em;">Label <span style="color: #888; font-weight: normal;">(optional)</span></label>
+    <input type="text" name="label" id="label" placeholder="What is this site?" style="width: 100%; padding: 0.5em; font-family: inherit; font-size: 1em; border: 1px solid #888;">
+  </div>
+  <button type="submit" style="padding: 0.55em 1.2em; font-size: 1em; font-family: inherit; border: 1px solid #555; background: #eee; cursor: pointer;">Add seed &amp; enqueue</button>
+</form>
+
+<h3 style="margin-top: 2em;">Current seeds ({{ seeds|length }})</h3>
+{% if seeds %}
+<table style="border-collapse: collapse; width: 100%; font-size: 0.9em;">
+  <thead>
+    <tr style="background: #f4f4ec;">
+      <th style="text-align: left; padding: 0.5em; border-bottom: 2px solid #ccc;">URL</th>
+      <th style="text-align: left; padding: 0.5em; border-bottom: 2px solid #ccc;">Label</th>
+      <th style="text-align: left; padding: 0.5em; border-bottom: 2px solid #ccc;">Source</th>
+      <th style="text-align: left; padding: 0.5em; border-bottom: 2px solid #ccc;">Added</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in seeds %}
+    <tr>
+      <td style="padding: 0.5em; border-bottom: 1px solid #eee; font-family: monospace; color: #007700;"><a href="{{ s.url }}" rel="noopener noreferrer" style="color: #007700;">{{ s.url }}</a></td>
+      <td style="padding: 0.5em; border-bottom: 1px solid #eee;">{{ s.label or "—" }}</td>
+      <td style="padding: 0.5em; border-bottom: 1px solid #eee; color: #888; font-size: 0.85em;">{{ s.source or "manual" }}</td>
+      <td style="padding: 0.5em; border-bottom: 1px solid #eee; color: #888; font-size: 0.85em;">{{ s.added_at.strftime('%Y-%m-%d') if s.added_at else "" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">No seeds yet. Add one above.</div>
+{% endif %}
+{% endblock %}
