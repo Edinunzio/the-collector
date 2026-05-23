@@ -166,7 +166,11 @@ def detect_ssg_generator(soup: BeautifulSoup) -> int:
 
 
 def detect_modern_hosting(domain: str) -> int:
-    """Returns -2 if domain is a known modern hosting platform."""
+    """Returns -2 if domain is a known modern hosting platform.
+
+    Domain comparison is case-insensitive per RFC 1035 (hostnames are case-insensitive).
+    """
+    domain = domain.lower()
     for suffix in _MODERN_HOST_SUFFIXES:
         if domain.endswith(suffix):
             return -2
