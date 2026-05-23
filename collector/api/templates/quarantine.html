@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Quarantine — The Collector{% endblock %}
+{% block content %}
+<h2>Quarantine Queue</h2>
+<p class="meta">Pages held for human review — borderline scores, frames, mixed signals, or empty bodies. Approve to push into the index, reject to discard, rescore to re-run the signal filter with current weights.</p>
+
+{% if items %}
+  {% for item in items %}
+  <div class="result">
+    <h2><a href="{{ item.url }}" rel="noopener noreferrer">{{ item.url }}</a></h2>
+    <div class="url">{{ item.url }}</div>
+    <div class="signals">
+      <span class="score">score: {{ item.partial_score }}</span>
+      <span class="sig">reason: <strong>{{ item.error_reason }}</strong></span>
+      <span class="sig">http: {{ item.http_status or "?" }}</span>
+      <span class="sig">fetched: {{ item.fetched_at }}</span>
+    </div>
+    <div style="margin-top: 0.5em;">
+      <form action="/ui/quarantine/{{ item.id }}/approve" method="post" style="display: inline;"><button type="submit">Approve</button></form>
+      <form action="/ui/quarantine/{{ item.id }}/reject" method="post" style="display: inline;"><button type="submit">Reject</button></form>
+      <form action="/ui/quarantine/{{ item.id }}/rescore" method="post" style="display: inline;"><button type="submit">Rescore</button></form>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="empty">No items in quarantine. Either nothing borderline yet, or you've already reviewed them all.</div>
+{% endif %}
+{% endblock %}

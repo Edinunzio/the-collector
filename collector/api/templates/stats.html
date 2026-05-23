@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Stats — The Collector{% endblock %}
+{% block content %}
+<h2>Index Stats</h2>
+<table style="border-collapse: collapse; width: 100%;">
+  <tr><td style="padding: 0.4em; border-bottom: 1px solid #ddd;"><strong>Total pages indexed</strong></td><td style="padding: 0.4em; border-bottom: 1px solid #ddd;">{{ stats.total_pages }}</td></tr>
+  <tr><td style="padding: 0.4em; border-bottom: 1px solid #ddd;"><strong>Unique domains</strong></td><td style="padding: 0.4em; border-bottom: 1px solid #ddd;">{{ stats.total_domains }}</td></tr>
+  <tr><td style="padding: 0.4em; border-bottom: 1px solid #ddd;"><strong>Average old_web_score</strong></td><td style="padding: 0.4em; border-bottom: 1px solid #ddd;">{{ stats.avg_old_web_score }}</td></tr>
+  <tr><td style="padding: 0.4em; border-bottom: 1px solid #ddd;"><strong>Dead pages (404'd)</strong></td><td style="padding: 0.4em; border-bottom: 1px solid #ddd;">{{ stats.dead_pages }}</td></tr>
+  <tr><td style="padding: 0.4em; border-bottom: 1px solid #ddd;"><strong>Quarantine (unreviewed)</strong></td><td style="padding: 0.4em; border-bottom: 1px solid #ddd;"><a href="/ui/quarantine">{{ stats.quarantine_unreviewed }}</a></td></tr>
+  <tr><td style="padding: 0.4em; border-bottom: 1px solid #ddd;"><strong>Threats logged</strong></td><td style="padding: 0.4em; border-bottom: 1px solid #ddd;">{{ stats.threat_log_total }}</td></tr>
+</table>
+
+<h2 style="margin-top: 2em;">Crawl Queue</h2>
+<table style="border-collapse: collapse; width: 100%;">
+  <tr><td style="padding: 0.4em; border-bottom: 1px solid #ddd;"><strong>Running</strong></td><td style="padding: 0.4em; border-bottom: 1px solid #ddd;">{{ "yes" if crawl.running else "no" }}</td></tr>
+  {% for status, count in crawl.items() %}
+    {% if status != "running" %}
+    <tr><td style="padding: 0.4em; border-bottom: 1px solid #ddd;"><strong>{{ status }}</strong></td><td style="padding: 0.4em; border-bottom: 1px solid #ddd;">{{ count }}</td></tr>
+    {% endif %}
+  {% endfor %}
+</table>
+
+<form action="/ui/crawl-start" method="post" style="margin-top: 1.5em;">
+  <button type="submit" {% if crawl.running %}disabled{% endif %}>
+    {% if crawl.running %}Crawl already running{% else %}Start crawl{% endif %}
+  </button>
+</form>
+{% endblock %}
