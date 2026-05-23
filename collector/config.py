@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://collector:collector@localhost:5432/collector"
     redis_url: str = "redis://localhost:6379/0"
 
+    db_pool_min_size: int = 2
+    db_pool_max_size: int = 10
+
     crawl_workers: int = 5
     crawl_delay_seconds: float = 2.0
     crawl_depth_max: int = 3
