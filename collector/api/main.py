@@ -15,6 +15,7 @@ from collector.api.routes import (
     quarantine,
     threats,
     tasks,
+    ui,
 )
 
 
@@ -39,6 +40,7 @@ app.include_router(pages.router, tags=["pages"])
 app.include_router(quarantine.router, tags=["quarantine"])
 app.include_router(threats.router, tags=["threats"])
 app.include_router(tasks.router, tags=["tasks"])
+app.include_router(ui.router, tags=["ui"], include_in_schema=False)
 
 
 @app.get("/health")

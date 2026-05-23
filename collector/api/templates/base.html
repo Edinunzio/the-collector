@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{% block title %}The Collector{% endblock %}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A poor man's search engine for the weird old-school internet.">
+<style>
+  /* Deliberately old-web — system fonts, simple, no framework */
+  body {
+    font-family: Georgia, "Times New Roman", serif;
+    max-width: 720px;
+    margin: 2em auto;
+    padding: 0 1em;
+    color: #222;
+    background: #fefefe;
+    line-height: 1.5;
+  }
+  header { border-bottom: 2px solid #444; margin-bottom: 1.5em; padding-bottom: 1em; }
+  header h1 { margin: 0; font-size: 1.8em; }
+  header h1 a { color: #222; text-decoration: none; }
+  header .tagline { color: #666; font-style: italic; font-size: 0.95em; margin-top: 0.3em; }
+  nav { margin-top: 0.6em; font-size: 0.9em; }
+  nav a { color: #0044aa; text-decoration: none; margin-right: 1em; }
+  nav a:hover { text-decoration: underline; }
+
+  form.search { margin: 1.5em 0; }
+  form.search input[type=text] {
+    width: 70%;
+    padding: 0.5em;
+    font-size: 1.1em;
+    font-family: inherit;
+    border: 1px solid #888;
+    background: #fff;
+  }
+  form.search button {
+    padding: 0.55em 1.2em;
+    font-size: 1em;
+    font-family: inherit;
+    border: 1px solid #555;
+    background: #eee;
+    cursor: pointer;
+  }
+  form.search button:hover { background: #ddd; }
+
+  .meta { color: #777; font-size: 0.85em; margin-bottom: 1.5em; }
+  .result { margin-bottom: 1.8em; padding-bottom: 1em; border-bottom: 1px dotted #ccc; }
+  .result h2 { margin: 0 0 0.2em 0; font-size: 1.15em; }
+  .result h2 a { color: #0044aa; text-decoration: none; }
+  .result h2 a:hover { text-decoration: underline; }
+  .result .url { color: #007700; font-size: 0.85em; font-family: monospace; word-break: break-all; }
+  .result .snippet { margin-top: 0.4em; color: #333; }
+  .result .signals {
+    margin-top: 0.5em;
+    font-size: 0.8em;
+    color: #888;
+    font-family: monospace;
+  }
+  .result .signals .score { color: #aa6600; font-weight: bold; }
+  .result .signals .sig { display: inline-block; margin-right: 0.7em; }
+  .result .signals .pos { color: #006600; }
+  .result .signals .neg { color: #cc0000; }
+  .result .signals .zero { color: #aaa; }
+
+  .empty { color: #888; font-style: italic; margin: 2em 0; }
+  .stats { background: #f4f4ec; border: 1px solid #ddd; padding: 0.7em 1em; font-size: 0.9em; margin-bottom: 1em; }
+  .stats strong { color: #444; }
+
+  footer {
+    margin-top: 3em;
+    padding-top: 1em;
+    border-top: 1px solid #ccc;
+    color: #888;
+    font-size: 0.8em;
+    text-align: center;
+  }
+  footer a { color: #777; }
+
+  .pagination { margin-top: 1.5em; text-align: center; }
+  .pagination a, .pagination span { margin: 0 0.5em; }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="/">The Collector</a></h1>
+  <div class="tagline">A poor man's search engine for the weird old-school internet.</div>
+  <nav>
+    <a href="/">Search</a>
+    <a href="/ui/stats">Stats</a>
+    <a href="/ui/quarantine">Quarantine</a>
+    <a href="/docs">API Docs</a>
+  </nav>
+</header>
+
+{% block content %}{% endblock %}
+
+<footer>
+  Phase 1 (personal). Self-hosted, no ads, no tracking, no personalization.<br>
+  Source: <a href="https://github.com/you/the-collector">github</a>
+</footer>
+</body>
+</html>

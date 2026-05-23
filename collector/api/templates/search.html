@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}{% if query %}{{ query }} — {% endif %}The Collector{% endblock %}
+
+{% block content %}
+<form class="search" action="/" method="get">
+  <input type="text" name="q" value="{{ query|default('') }}" autofocus placeholder="search the old web…">
+  <button type="submit">Search</button>
+</form>
+
+{% if query %}
+  <div class="meta">
+    {{ total }} result{{ total|pluralize }} for <strong>{{ query }}</strong>
+    {% if total > limit %} — page {{ page + 1 }} of {{ ((total - 1) // limit) + 1 }}{% endif %}
+  </div>
+
+  {% if results %}
+    {% for r in results %}
+      <div class="result">
+        <h2><a href="{{ r.url }}" rel="noopener noreferrer">{{ r.title or r.url }}</a></h2>
+        <div class="url">{{ r.url }}</div>
+        <div class="snippet">{{ r.snippet }}…</div>
+        <div class="signals">
+          <span class="score">old_web_score: {{ r.old_web_score }}</span>
+          {% for name, val in r.signals.items() %}
+            <span class="sig {% if val > 0 %}pos{% elif val < 0 %}neg{% else %}zero{% endif %}">{{ name }}:{{ val }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+
+    <div class="pagination">
+      {% if page > 0 %}
+        <a href="/?q={{ query|urlencode }}&page={{ page - 1 }}">← prev</a>
+      {% endif %}
+      <span>page {{ page + 1 }}</span>
+      {% if (page + 1) * limit < total %}
+        <a href="/?q={{ query|urlencode }}&page={{ page + 1 }}">next →</a>
+      {% endif %}
+    </div>
+  {% else %}
+    <div class="empty">No matches. The collector hasn't found anything for that yet. Try a broader query, or add a seed at <a href="/docs">/docs</a>.</div>
+  {% endif %}
+{% else %}
+  <div class="empty">
+    Type a query above to search.
+    <br><br>
+    Currently indexing: <strong>{{ stats.total_pages }}</strong> pages from <strong>{{ stats.total_domains }}</strong> domains.
+    Average old_web_score: <strong>{{ stats.avg_old_web_score }}</strong>.
+    {% if stats.quarantine_unreviewed %} · <a href="/ui/quarantine">{{ stats.quarantine_unreviewed }} in quarantine</a>{% endif %}
+  </div>
+{% endif %}
+{% endblock %}
