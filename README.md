@@ -6,20 +6,31 @@ Think GeoCities, tilde.town, Neocities, indie webrings. The kind of sites that m
 
 ---
 
-## Current Status: Phase 1 (Personal Tool)
+## Current Status
 
-✅ **Complete:** Foundation (DB, schema, migrations) + Signal Engine (14 detectors, scoring, quarantine queue)
-- **50 tests** across 3 test suites, all passing
-- Local single-VPS architecture (Docker)
-- Python 3.12, PostgreSQL, Redis, FastAPI, asyncio, Celery
+✅ **Phase 1 complete** — Foundation, Signal Engine, Crawler, API, Celery tasks
+✅ **Phase 2 substantially built** — HTML UI for search / seeds / stats / quarantine, CDX import trigger
+🔄 **Phase 2 remaining** — `/ui/threats` panel, signal weight tuner, multi-user submissions
+⏳ **Phase 3** — auth, rate limiting, public deployment
 
-🔄 **Planned (Phase 2–3):**
-- Full crawler with security checks and rate limiting
-- FastAPI admin/search API routes
-- Celery re-crawl scheduler and CDX API client
-- Minimal HTML UI (Phase 2)
-- Multi-user seed submission (Phase 2)
-- Public-facing deployment (Phase 3)
+**88 tests passing** across 8 suites. Stack runs end-to-end via `docker compose up`.
+
+---
+
+## What You Can Do Right Now
+
+After `docker compose up -d`, point a browser at **http://localhost:8000** and:
+
+| URL | What it does |
+|---|---|
+| `/` | Search the index — typed query → ranked results with snippets + signal breakdown |
+| `/ui/seeds` | Add seed URLs via form, view current seed list |
+| `/ui/stats` | Index size, crawl queue depth, **Start Crawl** button, **CDX import** form |
+| `/ui/quarantine` | Review borderline pages — approve, reject, or rescore each |
+| `/docs` | Swagger UI for the JSON API (no auth in Phase 1) |
+| `/redoc` | ReDoc reference docs |
+
+The UI is **server-rendered Jinja templates, no JavaScript, no framework**. Georgia + system colors. It deliberately looks like the kind of site it's trying to surface — eats its own dog food.
 
 ---
 
@@ -30,33 +41,35 @@ Five Docker containers, one `docker-compose.yml`, one VPS:
 ```mermaid
 flowchart TD
     subgraph Docker["Docker Compose"]
-        API["FastAPI\n:8000"]
+        API["FastAPI\n:8000\n+ HTML UI"]
         CRAWLER["Async Crawler\nworker"]
-        CELERY["Celery Worker\nre-crawl scheduler"]
+        CELERY["Celery Worker\n+ beat scheduler"]
         DB["PostgreSQL\nFTS + tsvector"]
         REDIS["Redis\nCelery broker"]
     end
 
-    SEEDS["Hand-curated\nseeds.txt"] --> CRAWLER
+    SEEDS["seeds.txt /\n/ui/seeds form"] --> API
+    CDX["Internet Archive\nCDX API"] --> API
     SPIDER["Link spider\nbreadth-first"] --> CRAWLER
-    CDX["Internet Archive\nCDX API"] --> CRAWLER
 
+    API --> DB
+    API --> CRAWLER
     CRAWLER --> DB
     CELERY --> CRAWLER
+    CELERY --> DB
     REDIS --> CELERY
-    API --> DB
-    API -.-> REDIS
 ```
 
 **Stack:**
 - **Language:** Python 3.12+
 - **Async:** `httpx` + `asyncio` for concurrent crawling
-- **HTML parsing:** BeautifulSoup4 + lxml (C-level parser, safe from ReDoS)
+- **HTML parsing:** BeautifulSoup4 + lxml (C-level parser, resistant to ReDoS)
 - **Encoding detection:** chardet on raw bytes before parsing
-- **Database:** PostgreSQL 12+ with `tsvector` full-text search, `GIN` index, `ts_rank_cd` BM25-style ranking
-- **API:** FastAPI (no ORM — raw asyncpg for explicit control)
+- **Database:** PostgreSQL 16 with `tsvector` full-text search, `GIN` index, `ts_rank_cd` BM25-style ranking
+- **API:** FastAPI (no ORM — raw asyncpg for explicit query control)
+- **Templates:** Jinja2, server-rendered, no JS
 - **Task scheduler:** Celery + Redis (periodic re-crawl, CDX imports, dead link checks)
-- **Containerization:** Docker + Docker Compose (all services share one image, different commands)
+- **Containerization:** Docker + Docker Compose (all Python services share one image, different commands)
 
 ---
 
@@ -64,52 +77,71 @@ flowchart TD
 
 ### 1. Prerequisites
 - Docker & Docker Compose
-- Python 3.12+ (for local development/testing)
+- (Optional) Python 3.12+ for local development
 
-### 2. Start the Stack
-
-```bash
-cd /Users/liz/Projects/the-collector
-docker-compose up -d
-```
-
-Services start with:
-- **db:** PostgreSQL, migrations run automatically, ready for queries
-- **redis:** Celery broker
-- **api:** FastAPI server (not yet implemented for Phase 1)
-- **crawler:** Async worker (not yet wired up for Phase 1)
-- **celery:** Beat scheduler + worker (not yet wired up for Phase 1)
-
-### 3. Run Tests
+### 2. Start the stack
 
 ```bash
-# Inside the container:
-docker-compose exec api pytest tests/ -v
-
-# Or locally (requires local Python 3.12+ install + dependencies):
-pip install -e ".[dev]"
-pytest tests/ -v
-```
-
-All 50 tests pass. Test coverage:
-- **test_foundation.py:** 5 tests (tables, indexes, FTS ranking, transaction isolation)
-- **test_detectors.py:** 33 tests (all 14 signal detectors across fixture scenarios)
-- **test_signals.py:** 12 tests (end-to-end scoring, quarantine routing, auto-reject checks)
-
-### 4. Environment Configuration
-
-Copy `.env.example` to `.env` (pre-configured for Docker):
-
-```bash
+git clone https://github.com/Edinunzio/the-collector.git
+cd the-collector
 cp .env.example .env
+docker compose up -d
 ```
 
-Key parameters:
-- `SIGNAL_THRESHOLD=3` — minimum score to index a page (default tuning: personal sites often score 6+, commercial sites score 0–2)
-- `CRAWL_WORKERS=5` — concurrent crawlers (respectful to target domains)
-- `CRAWL_DELAY_SECONDS=2.0` — rate limiting between hits to same domain
-- `CRAWL_DEPTH_MAX=3` — max hops from seed (e.g., seed → link → link → link = depth 3, stop)
-- `RESPONSE_SIZE_LIMIT_BYTES=5242880` (5 MB) — gzip bomb protection
+The first `up` builds the image (~2 min). After that:
+
+- **db** (PostgreSQL 16) — runs migrations idempotently on first start
+- **redis** — Celery broker + result backend
+- **api** — uvicorn at http://localhost:8000 (also serves HTML UI)
+- **crawler** — runs once when started (drains queue, then exits — re-trigger from `/ui/stats`)
+- **celery** — beat scheduler + worker (re-crawl every 6h, dead links Sun 3am UTC)
+
+### 3. Add seeds + crawl
+
+Either via the UI (http://localhost:8000/ui/seeds) or:
+```bash
+curl -X POST http://localhost:8000/seeds/bulk \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "/app/seeds.txt"}'
+curl -X POST http://localhost:8000/crawl/start
+```
+
+Watch progress: http://localhost:8000/ui/stats
+
+### 4. Search
+
+```
+http://localhost:8000/?q=tropical+fish
+```
+
+Or via the API: `GET /search?q=...&page=0&limit=10` → JSON with results, snippets, signal breakdown.
+
+### 5. Run tests
+
+```bash
+docker compose exec api pytest tests/ -v
+```
+
+Should report `88 passed`.
+
+---
+
+## Configuration
+
+Edit `.env` (template in `.env.example`):
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SIGNAL_THRESHOLD` | `3` | Minimum score to index. Higher = more selective. |
+| `CRAWL_WORKERS` | `5` | Concurrent crawl coroutines |
+| `CRAWL_DELAY_SECONDS` | `2.0` | Per-domain rate limit |
+| `CRAWL_DEPTH_MAX` | `3` | Max hops from seed |
+| `CRAWL_DOMAIN_PAGE_CAP` | `500` | Per-domain page cap (prevents one site dominating) |
+| `RESPONSE_SIZE_LIMIT_BYTES` | `5242880` (5 MB) | Pre-download size cap + gzip-bomb guard |
+| `CHARDET_CONFIDENCE_THRESHOLD` | `0.7` | Below this → page goes to quarantine for review |
+| `HTTPX_CONNECT_TIMEOUT` | `10.0` | Per-request connect timeout (seconds) |
+| `HTTPX_READ_TIMEOUT` | `30.0` | Per-request read timeout |
+| `PAGE_PROCESS_TIMEOUT` | `30.0` | Hard limit on signal detection + parsing (ReDoS guard) |
 
 ---
 
@@ -119,14 +151,15 @@ The problem: the best isolated old-web sites aren't linked from any modern direc
 
 ### 1. **Internet Archive CDX API**
 URLs captured 1996–2008 that still return HTTP 200 today. Free API, no crawling required.
+Trigger from `/ui/stats` → CDX import form, or `POST /tasks/import-cdx`.
 
 ### 2. **Link-following Spider**
-Breadth-first crawl from known seed domains (Neocities, tilde.town, IndieWeb directories, Wiby). Discovers linked neighbors up to depth 3.
+Breadth-first crawl from known seed domains. Discovers linked neighbors up to depth 3.
 
-### 3. **Hand-curated Seeds** (`seeds.txt`)
+### 3. **Hand-curated Seeds** (`seeds.txt` + `/ui/seeds`)
 When you stumble on something good, drop it in. Highest signal-to-noise.
 
-**Starting seeds:**
+**Starting seeds shipped in `seeds.txt`:**
 ```
 https://neocities.org/browse
 https://tilde.town
@@ -140,7 +173,7 @@ https://ooh.directory
 
 ## Signal Engine: How Pages Are Scored
 
-Every fetched page is scored before indexing. Must clear a threshold (default: **3**) to be indexed.
+Every fetched page is scored before indexing. Must clear `SIGNAL_THRESHOLD` (default: **3**) to be indexed.
 
 ### Positive Signals (Old Web)
 
@@ -166,8 +199,6 @@ Every fetched page is scored before indexing. Must clear a threshold (default: *
 
 ### Auto-Reject (Regardless of Score)
 
-Pages are rejected **before scoring** if they match:
-
 | Signal | Detection |
 |--------|-----------|
 | Single Page Application | `<div id="root">` or `<div id="app">` as primary body content |
@@ -178,12 +209,14 @@ Pages are rejected **before scoring** if they match:
 
 Pages that don't auto-reject but score close to the threshold (or have mixed signals) go to quarantine for human review instead of silent rejection:
 
-- **Framesets** — HTML frame-based structure (content is in child frames)
-- **Empty body** — Fetched successfully but extracted text < 50 chars
-- **Mixed signals** — High old-web score (+6) but also strong negatives (-3)
-- **Borderline** — Score within 2 points of threshold
+- **Framesets** — content lives in child frames (those get re-enqueued)
+- **Empty body** — fetched successfully but extracted text < 50 chars (often redirects)
+- **Mixed signals** — high old-web score (+6) but also strong negatives (-3)
+- **Borderline** — score within 2 points of threshold
 - **Encoding uncertain** — chardet confidence < 0.7
 - **Parse errors** — BeautifulSoup threw on malformed HTML
+
+Review via http://localhost:8000/ui/quarantine — one-click **Approve** / **Reject** / **Rescore** per item.
 
 ---
 
@@ -197,34 +230,54 @@ the-collector/
 │   ├── signals/
 │   │   ├── detectors.py          # 14 pure signal detection functions
 │   │   └── filter.py             # Scoring orchestrator + quarantine router
-│   ├── crawler/                  # (Phase 2) Security, robots.txt, queue, rate limiting
-│   ├── indexer/                  # (Phase 2) DB insert, FTS indexing
-│   ├── tasks/                    # (Phase 2) Celery beat tasks
+│   ├── crawler/
+│   │   ├── security.py           # SSRF / scheme / size pre-request checks
+│   │   ├── robots.py             # Per-domain robots.txt cache
+│   │   ├── queue.py              # Postgres-backed crawl queue
+│   │   ├── cdx.py                # Internet Archive CDX API client
+│   │   └── worker.py             # Async fetch → filter → index pipeline
+│   ├── indexer/
+│   │   └── db.py                 # Upsert pages, quarantine, threat log
+│   ├── tasks/
+│   │   └── celery_app.py         # Beat schedule + recrawl/dead-link/CDX tasks
 │   └── api/
-│       ├── main.py               # (Phase 2) FastAPI app
-│       └── routes/               # (Phase 2) /search, /seeds, /crawl, etc.
+│       ├── main.py               # FastAPI app with lifespan DB pool
+│       ├── routes/
+│       │   ├── search.py         # GET /search (ts_rank_cd + ts_headline)
+│       │   ├── seeds.py          # /seeds CRUD + bulk
+│       │   ├── crawl.py          # /crawl/start, /crawl/status
+│       │   ├── pages.py          # /pages/{id}, /stats
+│       │   ├── quarantine.py     # /quarantine list/approve/reject/rescore
+│       │   ├── threats.py        # /threats, /blocked-domains
+│       │   ├── tasks.py          # /tasks/import-cdx
+│       │   └── ui.py             # HTML UI routes (not in OpenAPI schema)
+│       └── templates/
+│           ├── base.html         # Shared chrome, nav, CSS
+│           ├── search.html       # Home + results
+│           ├── stats.html        # Index + crawl + CDX import form
+│           ├── seeds.html        # Add + list seeds
+│           └── quarantine.html   # Review queue
 │
 ├── migrations/
-│   ├── 001_initial_schema.sql    # 6 tables: pages, quarantine, crawl_queue, seeds, threat_log, blocked_domains
+│   ├── 001_initial_schema.sql    # 6 tables + GIN index + generated tsvector
 │   └── run_migrations.py         # Idempotent asyncpg runner
 │
-├── tests/
-│   ├── conftest.py               # Event loop, test DB fixture, transaction isolation
-│   ├── test_foundation.py        # 5 tests: schema, indexes, FTS, isolation
-│   ├── test_detectors.py         # 33 tests: all 14 signal detectors
-│   ├── test_signals.py           # 12 tests: scoring pipeline, quarantine routing
-│   └── fixtures/                 # HTML samples for testing
-│       ├── geocities_1999.html   # Classic 1990s page (font, marquee, table)
-│       ├── react_app.html        # Modern SPA (div#root, hashed assets)
-│       ├── jekyll_site.html      # Jekyll-generated (generator meta tag)
-│       ├── frameset_page.html    # Frame-based (quarantine test)
-│       └── borderline.html       # Modern personal page (below threshold)
+├── tests/                        # 88 tests across 8 suites
+│   ├── conftest.py               # Test DB fixture, transaction rollback isolation
+│   ├── test_foundation.py        # 5 — schema, indexes, FTS, isolation
+│   ├── test_detectors.py         # 33 — all 14 signal detectors
+│   ├── test_signals.py           # 12 — scoring pipeline, quarantine routing
+│   ├── test_security.py          # 21 — SSRF, schemes, normalization, entropy
+│   ├── test_cdx.py               # 3 — CDX API client with respx mocks
+│   ├── test_crawler.py           # 3 — full crawler integration (pytest-httpserver)
+│   ├── test_api.py               # 8 — all routes via FastAPI AsyncClient
+│   ├── test_tasks.py             # 3 — Celery task import smoke tests
+│   └── fixtures/                 # HTML samples
 │
-├── docker-compose.yml            # Five services + health checks
+├── docker-compose.yml            # 5 services + health checks
 ├── Dockerfile                    # Python 3.12-slim + lxml build deps
 ├── pyproject.toml                # Dependencies, test config
 ├── .env.example                  # Configuration template
-├── .gitignore                    # .env, __pycache__, .pytest_cache, etc.
 ├── seeds.txt                     # Hand-curated starting URLs
 └── README.md                     # This file
 ```
@@ -235,20 +288,20 @@ the-collector/
 
 **pages** — Indexed content
 - `id`, `url` (unique), `domain`, `title`, `raw_text`
-- `search_vector` (generated `tsvector`, GIN index) — full-text search
+- `search_vector` (generated `tsvector`, GIN-indexed) — full-text search
 - `old_web_score` (integer), `detected_signals` (JSONB) — explainability
-- `status`, `crawled_at`, `last_seen_at`, `next_crawl_at`
+- `status` (`active` / `dead`), `crawled_at`, `last_seen_at`, `next_crawl_at`
 
-**quarantine** — Pages that need human review
+**quarantine** — Pages held for human review
 - `id`, `url` (unique), `raw_html`, `error_reason`, `partial_signals` (JSONB), `partial_score`
 - `http_status`, `fetch_error`, `fetched_at`, `reviewed`
 
 **crawl_queue** — BFS work queue (resumable across crashes)
-- `id`, `url` (unique), `source_url`, `depth`, `status` (`pending`/`in_progress`/`done`/`failed`)
+- `id`, `url` (unique), `source_url`, `depth`, `status` (`pending` / `in_progress` / `done` / `failed`)
 - `attempts`, `queued_at`, `next_attempt_at`, `claimed_at`, `claimed_by`, `last_error`
 
 **seeds** — Hand-curated starting points
-- `id`, `url` (unique), `label`, `source`, `added_at`
+- `id`, `url` (unique), `label`, `source` (`manual` / `file`), `added_at`
 
 **threat_log** — Security events (SSRF, gzip bombs, spider traps, etc.)
 - `id`, `url`, `domain`, `threat_type`, `detail`, `http_status`, `detected_at`, `domain_blocked`
@@ -256,76 +309,78 @@ the-collector/
 **blocked_domains** — Domains flagged from threat_log
 - `id`, `domain` (unique), `reason`, `source`, `blocked_at`
 
+**schema_migrations** — Tracks applied migration files (idempotency)
+
 ---
 
 ## Security
 
-All checks run **before** HTML parsing, in order:
+All checks run **before** HTML parsing, in this order:
 
-1. **Scheme check** — reject non-HTTP/S URLs immediately
-2. **IP allowlist** — reject RFC1918 ranges + Docker service hostnames
-3. **`Content-Length` cap** — reject before download if > 5 MB
-4. **Decompressed size cap** — abort and log if decompressed bytes > 5 MB
-5. **Timeout enforcement** — connect: 10s, read: 30s
-6. **Per-page timeout** — 30s hard limit on signal detection + parsing
-7. **URL normalization** — strip tracking params, detect spider traps
-8. **Redirect validation** — re-run scheme + IP checks on every hop
+1. **Scheme check** — reject non-HTTP/S URLs (no `file://`, `gopher://`, `ftp://`, etc.)
+2. **Hostname / IP check** — reject Docker service hostnames (`db`, `redis`, `api`) and RFC1918 / loopback / link-local ranges
+3. **`Content-Length` cap** — reject before download if header exceeds 5 MB
+4. **Downloaded size cap** — abort and log if response body exceeds 5 MB
+5. **Connect / read timeouts** — `httpx` 10s connect, 30s read
+6. **Per-page processing timeout** — 30s hard limit on signal detection + parsing (ReDoS guard)
+7. **URL normalization** — strip session/UTM/tracking params before enqueue
+8. **High-entropy query detection** — drop spider-trap-shaped URLs at enqueue time
+9. **Redirect re-validation** — re-run scheme + IP checks on the final URL after redirects
 
-Threat types logged to `threat_log`:
+Every violation logs to `threat_log`:
 - `ssrf_attempt`, `gzip_bomb`, `spider_trap`, `redirect_violation`, `slow_response`, `recursion_bomb`, `oversized_response`
+
+Domains in `blocked_domains` are checked at queue-pop time — blocked URLs are dropped before any network request.
 
 ---
 
 ## Testing
 
-All tests use fixtures (HTML samples) instead of mocking HTTP. This catches real parsing bugs early.
-
 ```bash
-# Run all tests
-pytest tests/ -v
+# Full suite (88 tests, ~1.5s)
+docker compose exec api pytest tests/ -v
 
-# Run a specific suite
-pytest tests/test_detectors.py -v
-
-# Run with coverage
-pytest tests/ --cov=collector
+# Specific suite
+docker compose exec api pytest tests/test_security.py -v
 ```
 
 **Test philosophy:**
 - Signal detectors are **pure functions** (no I/O, no DB) — trivial to unit test
-- Scoring pipeline uses **fixtures** instead of HTTP mocking — catches parsing edge cases
-- Database tests use **transaction rollback** for isolation (all tests share one test DB)
-- No external network calls — CDX API and crawling are Phase 2
+- Crawler tests use **pytest-httpserver** (real HTTP, fake server) — catches parsing bugs HTTP mocks miss
+- CDX client tests use **respx** to mock the Internet Archive API
+- Database tests use **transaction rollback** for per-test isolation
+- No external network calls in any test
 
 ---
 
 ## Development Phases
 
-### Phase 1: Personal Tool ✅
-- Single VPS, local/developer only
-- Foundation: schema, migrations, DB pool
-- Signal Engine: 14 detectors, scoring, quarantine queue
-- **Status:** Complete, 50 tests passing
+### Phase 1: Personal Tool ✅ **Complete**
+- Foundation: schema, migrations, asyncpg pool
+- Signal Engine: 14 detectors, scoring, quarantine routing
+- Crawler: security, robots, queue, fetch pipeline, link spider, frame handling
+- API: search, seeds, crawl control, pages, quarantine, threats, CDX trigger
+- Celery: re-crawl scheduler, dead-link checker, CDX batch import
+- **88 tests passing**
 
-### Phase 2: Self-Hosted & Shareable 🔄
-- Minimal HTML UI
-- Full crawler with security checks, robots.txt, rate limiting
-- FastAPI admin routes: `/search`, `/seeds`, `/crawl`, `/quarantine`, `/stats`
-- Celery re-crawl scheduler (periodic, configurable)
-- CDX API client (queries Internet Archive for old URLs)
-- Multi-user seed submission
-- Dead link checker (periodic HEAD requests)
+### Phase 2: Self-Hosted & Shareable 🔄 **In progress**
+- ✅ HTML UI: search, seeds, stats, quarantine review
+- ✅ CDX import trigger from UI
+- 🔄 `/ui/threats` panel (security log + one-click block-domain)
+- 🔄 Result clustering by domain (collapse same-domain duplicates in search)
+- 🔄 Multi-user seed submission (Phase 2.5)
+- 🔄 Signal weight tuner UI (live config without restart)
 
-### Phase 3: Public-Facing
+### Phase 3: Public-Facing ⏳
 - Authentication & API keys
-- Rate limiting per user
-- Distributed/multi-machine crawling
-- Common Crawl integration (Phase 2 uses CDX API only)
-- Semantic/embedding search (optional)
+- Per-user rate limiting
+- Distributed / multi-machine crawling
+- Common Crawl integration (Phase 2 uses CDX only)
+- Optional: semantic / embedding search
 
 ---
 
-## How to Contribute Signals
+## How to Add a Signal
 
 Each signal is a pure Python function in `collector/signals/detectors.py`:
 
@@ -336,6 +391,8 @@ def detect_example(soup: BeautifulSoup) -> int:
     return N if condition else 0
 ```
 
+Wire it into `collector/signals/filter.py` (add to the signals dict in `score_page`).
+
 Add a test case to `tests/test_detectors.py`:
 
 ```python
@@ -345,62 +402,53 @@ def test_detect_example():
     assert score == expected_score
 ```
 
-Run `pytest` — new tests are auto-discovered.
+Run `pytest tests/test_detectors.py -v`. After tuning, re-score quarantine entries with `POST /quarantine/{id}/rescore`.
 
 ---
 
 ## Tuning the Threshold
 
-The default `SIGNAL_THRESHOLD=3` is tuned for Phase 1 personal exploration. Adjust in `.env`:
+Default `SIGNAL_THRESHOLD=3` is calibrated for personal exploration. Adjust in `.env`:
 
-- **Higher threshold (5–6):** More selective (fewer false positives), fewer pages indexed
-- **Lower threshold (1–2):** More permissive (more false positives), noisier results
+- **Higher (5–6):** More selective. Fewer indexed, fewer false positives.
+- **Lower (1–2):** More permissive. Noisier results.
 
-Monitor quarantine entries to see what nearly makes it in. Use `POST /quarantine/{id}/rescore` (Phase 2) to re-run detectors after tuning weights.
+Monitor `/ui/quarantine` to see what nearly makes it in — adjust thresholds and rescore individual items, or restart the stack to apply globally.
 
 ---
 
 ## Design Decisions
 
 | Decision | Rationale |
-|----------|-----------|
-| **PostgreSQL, not SQLite** | Single VPS is fine, but need concurrent read/write (SQLite locks). FTS with `tsvector` is fast and integrated. |
-| **Signal detectors as pure functions** | Easy to test in isolation, easy to add/remove, explicit scoring. |
+|---|---|
+| **PostgreSQL, not SQLite** | Concurrent read/write under crawler load; FTS via `tsvector` is fast and integrated. |
+| **Signal detectors as pure functions** | Easy to test, easy to add, every score component is explainable. |
 | **Quarantine queue for ambiguous pages** | Human review preserves quality over silent rejection. |
-| **Async crawler** | Respectful to target domains (rate limiting), resumable (crawl_queue status survives crashes). |
-| **Five Docker containers** | Simple to reason about, easy to scale (Phase 2), shared image = faster builds. |
-| **lxml parser** | C-level implementation, resistant to deeply nested HTML and malformed markup. |
-| **No ORM** | Raw asyncpg for explicit control; ORMs hide query complexity and concurrency issues. |
+| **Async crawler** | Respectful (per-domain rate limit), resumable (queue state survives crashes). |
+| **lxml parser** | C-level implementation, resistant to malformed and deeply nested HTML. |
+| **No ORM** | Raw asyncpg for explicit query control; ORMs hide query and concurrency behavior. |
+| **Server-rendered Jinja UI, no JS** | The UI should look like the kind of site it indexes. Also: 1 KB load, no build step. |
+| **POST → 303 → GET for all forms** | Refresh-safe; no double-submit; no client state. |
+| **UI routes call JSON handlers as Python functions** | Single source of truth for business logic. UI just renders. |
 
 ---
 
-## Known Limitations (Phase 1)
+## Known Limitations
 
-- **No crawler yet** — Phase 2
-- **No API yet** — Phase 2
-- **No re-crawl scheduler** — Phase 2
-- **No CDX API client** — Phase 2
-- **Single VPS only** — Phase 3
-- **No public UI** — Phase 2+
+- **No auth** — Phase 1/2 is local-only. Don't expose port 8000 publicly without Phase 3 auth.
+- **Crawler container exits after queue drain** — re-trigger from `/ui/stats` or `POST /crawl/start`. Alternative: run `docker compose up crawler` again.
+- **No semantic search** — keyword-only via `ts_rank_cd`. Embedding search is Phase 3.
+- **CDX queries are synchronous within the background task** — large imports can take minutes.
 
 ---
 
-## Next Steps
+## FAQ
 
-1. **Phase 2 Crawler:** Security checks, robots.txt cache, rate limiter, link extractor, queue manager
-2. **Phase 2 Indexer:** `INSERT pages` with FTS trigger, `UPDATE pages` for re-crawl
-3. **Phase 2 API:** FastAPI routes for `/search`, `/seeds`, `/crawl`, `/quarantine`
-4. **Phase 2 Celery:** Beat tasks for re-crawl (30-day cycle), CDX import, dead link check
-5. **Phase 2 UI:** Minimal HTML form for seed submission, search results
-
----
-
-## Questions?
-
-- **Why no Wayback Machine integration?** Preservation is out of scope for Phase 1. CDX API queries archived URLs but doesn't save new ones.
-- **Why not use Elasticsearch?** Overkill for Phase 1. PostgreSQL FTS is fast enough and eliminates external dependencies.
-- **Why hand-curated seeds?** High signal-to-noise. You know what's good; automated discovery adds noise.
-- **Why 3-hop depth limit?** Balances discovery (neighbors of neighbors) against spider traps and noise.
+- **Why no Wayback Machine preservation?** Out of scope. CDX queries archived URLs to discover live ones; preserving new captures is a separate problem.
+- **Why not Elasticsearch?** Overkill. PostgreSQL FTS is fast enough for a personal-scale index and eliminates an external service.
+- **Why hand-curated seeds?** Highest signal-to-noise. You know what's good; automated discovery adds noise that the signal filter has to fight against.
+- **Why 3-hop depth?** Balances neighbor-of-neighbor discovery against spider traps and noise.
+- **Why Georgia for the UI font?** It's calm and readable, ships on every OS, and isn't trying to be a brand. Old-web aesthetic.
 
 ---
 
