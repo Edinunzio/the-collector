@@ -29,7 +29,24 @@ from collector.api.routes.tasks import (
     trigger_cdx_import as trigger_cdx_route,
     CDXImportRequest,
 )
+from collector.api.routes.threats import (
+    list_threats as list_threats_route,
+    block_domain as block_domain_route,
+    list_blocked_domains as list_blocked_route,
+    unblock_domain as unblock_route,
+)
 import collector.api.routes.crawl as crawl_module
+
+# Threat types we know how to log — used to populate the filter dropdown
+_THREAT_TYPES = [
+    "ssrf_attempt",
+    "gzip_bomb",
+    "spider_trap",
+    "redirect_violation",
+    "slow_response",
+    "recursion_bomb",
+    "oversized_response",
+]
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
@@ -158,3 +175,49 @@ async def ui_quarantine_reject(item_id: int):
 async def ui_quarantine_rescore(item_id: int):
     await rescore_route(item_id)
     return RedirectResponse(url="/ui/quarantine", status_code=303)
+
+
+# --- Threats / blocked domains ---
+
+@router.get("/ui/threats", response_class=HTMLResponse)
+async def ui_threats(
+    request: Request,
+    threat_type: str | None = None,
+    domain: str | None = None,
+    message: str | None = None,
+):
+    # Normalise empty-string params from the filter form to None
+    threat_type = threat_type or None
+    domain = domain or None
+    threats = await list_threats_route(
+        threat_type=threat_type, domain=domain, limit=100, offset=0
+    )
+    blocked = await list_blocked_route()
+    return templates.TemplateResponse(
+        request,
+        "threats.html",
+        {
+            "threats": threats,
+            "blocked": blocked,
+            "threat_types": _THREAT_TYPES,
+            "filter_type": threat_type,
+            "filter_domain": domain,
+            "message": message,
+        },
+    )
+
+
+@router.post("/ui/threats/{threat_id}/block-domain")
+async def ui_threat_block(threat_id: int):
+    result = await block_domain_route(threat_id)
+    from urllib.parse import quote
+    msg = f"Blocked domain: {result.get('domain', '')}"
+    return RedirectResponse(url=f"/ui/threats?message={quote(msg)}", status_code=303)
+
+
+@router.post("/ui/blocked-domains/{domain}/unblock")
+async def ui_unblock_domain(domain: str):
+    await unblock_route(domain)
+    from urllib.parse import quote
+    msg = f"Unblocked {domain}."
+    return RedirectResponse(url=f"/ui/threats?message={quote(msg)}", status_code=303)
