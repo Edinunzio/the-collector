@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Threats — The Collector{% endblock %}
+{% block content %}
+
+<h2>Threat Log</h2>
+<p class="meta">Every page rejected by the security layer before fetch (or aborted mid-fetch) lands here. Use this to spot misbehaving domains, configure exceptions, or promote repeat offenders to the blocked-domains list.</p>
+
+<form action="/ui/threats" method="get" style="margin: 1em 0; padding: 0.7em 1em; background: #f4f4ec; border: 1px solid #ddd; font-size: 0.9em;">
+  <label>Type:
+    <select name="threat_type" style="font-family: inherit; padding: 0.3em;">
+      <option value="">— any —</option>
+      {% for t in threat_types %}
+        <option value="{{ t }}" {% if t == filter_type %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label style="margin-left: 1em;">Domain:
+    <input type="text" name="domain" value="{{ filter_domain or '' }}" placeholder="example.com" style="font-family: inherit; padding: 0.3em; width: 14em; border: 1px solid #888;">
+  </label>
+  <button type="submit" style="margin-left: 1em; padding: 0.35em 0.9em; font-family: inherit; border: 1px solid #555; background: #eee; cursor: pointer;">Filter</button>
+  {% if filter_type or filter_domain %}
+    <a href="/ui/threats" style="margin-left: 0.5em; color: #888; font-size: 0.85em;">clear</a>
+  {% endif %}
+</form>
+
+{% if message %}<div class="stats" style="background: #e8f5e8; border-color: #88aa88;">{{ message }}</div>{% endif %}
+
+{% if threats %}
+<table style="border-collapse: collapse; width: 100%; font-size: 0.85em;">
+  <thead>
+    <tr style="background: #f4f4ec;">
+      <th style="text-align: left; padding: 0.5em; border-bottom: 2px solid #ccc;">When</th>
+      <th style="text-align: left; padding: 0.5em; border-bottom: 2px solid #ccc;">Type</th>
+      <th style="text-align: left; padding: 0.5em; border-bottom: 2px solid #ccc;">Domain</th>
+      <th style="text-align: left; padding: 0.5em; border-bottom: 2px solid #ccc;">Detail</th>
+      <th style="text-align: left; padding: 0.5em; border-bottom: 2px solid #ccc;">Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for t in threats %}
+    <tr>
+      <td style="padding: 0.5em; border-bottom: 1px solid #eee; color: #666; white-space: nowrap;">{{ t.detected_at.strftime('%Y-%m-%d %H:%M') if t.detected_at else '' }}</td>
+      <td style="padding: 0.5em; border-bottom: 1px solid #eee;"><span style="font-family: monospace; color: {% if t.threat_type in ('ssrf_attempt', 'gzip_bomb', 'recursion_bomb') %}#cc0000{% elif t.threat_type == 'oversized_response' %}#cc6600{% else %}#666{% endif %};">{{ t.threat_type }}</span></td>
+      <td style="padding: 0.5em; border-bottom: 1px solid #eee; font-family: monospace; word-break: break-all;">
+        {{ t.domain }}
+        {% if t.domain_blocked %}<span style="color: #cc0000; font-size: 0.85em;"> · blocked</span>{% endif %}
+      </td>
+      <td style="padding: 0.5em; border-bottom: 1px solid #eee; color: #555; font-size: 0.85em;">{{ t.detail }}</td>
+      <td style="padding: 0.5em; border-bottom: 1px solid #eee; white-space: nowrap;">
+        {% if not t.domain_blocked %}
+          <form action="/ui/threats/{{ t.id }}/block-domain" method="post" style="display: inline;">
+            <button type="submit" style="font-size: 0.85em; padding: 0.25em 0.6em; cursor: pointer;">Block</button>
+          </form>
+        {% else %}
+          —
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">No threats match. Either the crawler hasn't hit anything sketchy yet, or your filter is too narrow.</div>
+{% endif %}
+
+<h2 style="margin-top: 2.5em;">Blocked Domains ({{ blocked|length }})</h2>
+{% if blocked %}
+<table style="border-collapse: collapse; width: 100%; font-size: 0.9em;">
+  <thead>
+    <tr style="background: #f4f4ec;">
+      <th style="text-align: left; padding: 0.5em; border-bottom: 2px solid #ccc;">Domain</th>
+      <th style="text-align: left; padding: 0.5em; border-bottom: 2px solid #ccc;">Reason</th>
+      <th style="text-align: left; padding: 0.5em; border-bottom: 2px solid #ccc;">Source</th>
+      <th style="text-align: left; padding: 0.5em; border-bottom: 2px solid #ccc;">Since</th>
+      <th style="text-align: left; padding: 0.5em; border-bottom: 2px solid #ccc;">Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for b in blocked %}
+    <tr>
+      <td style="padding: 0.5em; border-bottom: 1px solid #eee; font-family: monospace;">{{ b.domain }}</td>
+      <td style="padding: 0.5em; border-bottom: 1px solid #eee; color: #555;">{{ b.reason }}</td>
+      <td style="padding: 0.5em; border-bottom: 1px solid #eee; color: #888;">{{ b.source }}</td>
+      <td style="padding: 0.5em; border-bottom: 1px solid #eee; color: #888;">{{ b.blocked_at.strftime('%Y-%m-%d') if b.blocked_at else '' }}</td>
+      <td style="padding: 0.5em; border-bottom: 1px solid #eee;">
+        <form action="/ui/blocked-domains/{{ b.domain }}/unblock" method="post" style="display: inline;">
+          <button type="submit" style="font-size: 0.85em; padding: 0.25em 0.6em; cursor: pointer;">Unblock</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">No blocked domains. Click <strong>Block</strong> on a threat above to add one.</div>
+{% endif %}
+
+{% endblock %}
