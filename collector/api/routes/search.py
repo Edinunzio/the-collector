@@ -1,7 +1,13 @@
 """
-GET /search — full-text search using Postgres ts_rank_cd.
-Results are ranked by BM25-equivalent relevance (ts_rank_cd).
-Dead pages are excluded. Results include signal breakdown and a snippet.
+GET /search — full-text search using Postgres ts_rank_cd, extended with:
+  - Query-side synonym expansion (chickpea ↔ garbanzo, etc.)
+  - pg_trgm trigram fallback for typo tolerance on title field
+
+Ranking priority:
+  FTS match  → ts_rank_cd(...) + 1.0   (always > 1.0)
+  Trgm-only  → similarity(title, q)    (0.0 – 1.0)
+
+FTS results always outrank trigram-only results.
 """
 from __future__ import annotations
 import json
@@ -9,6 +15,7 @@ import re
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 from collector.db import get_pool
+from collector.search.synonyms import expand
 
 router = APIRouter()
 
@@ -37,7 +44,8 @@ async def search(
     limit: int = Query(10, ge=1, le=50),
 ) -> SearchResponse:
     pool = await get_pool()
-    ts_q = _to_tsquery(q)
+    ts_q = _to_tsquery(q)      # tsquery string, synonym-expanded
+    raw_q = q.strip()          # raw query string for trigram similarity
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -54,24 +62,34 @@ async def search(
                 old_web_score,
                 detected_signals,
                 crawled_at,
-                ts_rank_cd(search_vector, to_tsquery('english', $1)) AS rank
+                CASE
+                    WHEN search_vector @@ to_tsquery('english', $1)
+                        THEN ts_rank_cd(search_vector, to_tsquery('english', $1)) + 1.0
+                    ELSE similarity(title, $2)
+                END AS rank
             FROM pages
-            WHERE search_vector @@ to_tsquery('english', $1)
-              AND status = 'active'
+            WHERE status = 'active'
+              AND (
+                  search_vector @@ to_tsquery('english', $1)
+                  OR similarity(title, $2) > 0.3
+              )
             ORDER BY rank DESC
-            LIMIT $2 OFFSET $3
+            LIMIT $3 OFFSET $4
             """,
-            ts_q, limit, page * limit,
+            ts_q, raw_q, limit, page * limit,
         )
 
         total = await conn.fetchval(
             """
             SELECT COUNT(*)
             FROM pages
-            WHERE search_vector @@ to_tsquery('english', $1)
-              AND status = 'active'
+            WHERE status = 'active'
+              AND (
+                  search_vector @@ to_tsquery('english', $1)
+                  OR similarity(title, $2) > 0.3
+              )
             """,
-            ts_q,
+            ts_q, raw_q,
         )
 
     results = [
@@ -97,11 +115,24 @@ async def search(
 
 def _to_tsquery(q: str) -> str:
     """
-    Convert a plain search query to a tsquery string.
-    Joins words with & (AND). Strips non-alphanumeric characters.
-    Example: "tropical fish tanks" → "tropical & fish & tanks"
+    Convert a plain search query to a tsquery string with synonym expansion.
+
+    Each word is expanded to include known synonyms, OR-joined inside parens.
+    Words with no synonyms are passed through unchanged.
+
+    Examples:
+        "tropical fish tanks"  → "tropical & fish & tanks"
+        "garbanzo beans"       → "(garbanzo | chickpea) & beans"
+        "geociteis page"       → "(geociteis | geocities) & page"
     """
     words = re.findall(r'\w+', q)
     if not words:
         return "unknown"
-    return " & ".join(words)
+    parts = []
+    for word in words:
+        variants = expand(word)
+        if len(variants) == 1:
+            parts.append(variants[0])
+        else:
+            parts.append("(" + " | ".join(variants) + ")")
+    return " & ".join(parts)
