@@ -221,6 +221,69 @@ Review via http://localhost:8000/ui/quarantine — one-click **Approve** / **Rej
 
 ---
 
+## The Algorithm
+
+Two pipelines: one decides what gets **indexed**, one decides how **search results are ranked**.
+
+### Indexing Pipeline — What Gets In
+
+Every URL from the crawl queue runs this gauntlet before it can appear in search results:
+
+```mermaid
+flowchart TD
+    URL([URL from queue]) --> BLOCK{Domain\nblocked?}
+    BLOCK -->|yes| DROP1[Drop]
+    BLOCK -->|no| SEC{Security checks\nSSRF · scheme · size · redirect}
+    SEC -->|fail| THREAT[(threat_log)] --> DROP2[Drop]
+    SEC -->|pass| ROBOTS{robots.txt\nallowed?}
+    ROBOTS -->|no| SKIP[Skip]
+    ROBOTS -->|yes| FETCH[httpx fetch]
+    FETCH -->|timeout / error| THREAT
+    FETCH -->|200 OK| AUTO{Auto-reject\nsignals present?}
+    AUTO -->|SPA root div\nnoindex\npaywall| DISCARD[Discard]
+    AUTO -->|none| SCORE[Signal scoring\n14 detectors · see table above]
+    SCORE --> GATE{Score vs\nthreshold}
+    GATE -->|clear miss| DISCARD
+    GATE -->|borderline ±2\nmixed signals\nparse error\nframeset| QUARANTINE[(quarantine\nfor review)]
+    GATE -->|pass| INDEX[(pages\nFTS + signals)]
+```
+
+Every score component is stored as JSONB (`detected_signals`) so you can always explain why a page ranked the way it did or was held for review.
+
+---
+
+### Search Pipeline — How Results Are Ranked
+
+A query goes through synonym expansion before hitting the database, and results are scored by two complementary methods:
+
+```mermaid
+flowchart LR
+    Q([User query]) --> EXP["Synonym expansion\ngarbanzo → garbanzo OR chickpea\ngeociteis → geociteis OR geocities"]
+    EXP --> TSQ["Build tsquery\n'word1 & (syn_a | syn_b)'"]
+    TSQ --> FTS{"FTS match?\nsearch_vector @@ tsquery"}
+    FTS -->|yes| RFTS["rank = ts_rank_cd + 1.0\nalways > 1.0"]
+    FTS -->|no| TRGM{"Trigram match?\nsimilarity title q > 0.3"}
+    TRGM -->|yes| RTRGM["rank = similarity score\n0.0 – 1.0"]
+    TRGM -->|no| NONE([No result])
+    RFTS --> SORT["ORDER BY rank DESC"]
+    RTRGM --> SORT
+    SORT --> OUT([Results + snippets\n+ signal breakdown])
+```
+
+**Why FTS always beats trigram:** The `+1.0` offset means every FTS result scores above `1.0`, and trigram similarity is bounded `0–1`. No score normalisation needed — the math guarantees the right order.
+
+**Why two layers?** They catch different failure modes:
+
+| Layer | Catches | Misses |
+|---|---|---|
+| FTS (`tsvector` + `ts_rank_cd`) | Exact and stemmed matches (`fish` → `fishing`) | Typos, misspellings |
+| Synonym expansion | Word-level equivalence (`garbanzo` = `chickpea`) | Typos in the synonyms themselves |
+| Trigram (`pg_trgm`) | Character-level typos (`geociteis` → `geocities`) | Completely different words |
+
+Add synonyms in `collector/search/synonyms.py`. Add signals in `collector/signals/detectors.py`.
+
+---
+
 ## Project Structure
 
 ```
