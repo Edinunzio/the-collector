@@ -9,11 +9,11 @@ Think GeoCities, tilde.town, Neocities, indie webrings. The kind of sites that m
 ## Current Status
 
 ✅ **Phase 1 complete** — Foundation, Signal Engine, Crawler, API, Celery tasks
-✅ **Phase 2 substantially built** — HTML UI for search / seeds / stats / quarantine, CDX import trigger
-🔄 **Phase 2 remaining** — `/ui/threats` panel, signal weight tuner, multi-user submissions
+✅ **Phase 2 complete** — Full HTML UI: search, seeds, stats, quarantine, threats/blocked-domains, CDX import
+🔄 **Fuzzy search** — pg_trgm trigram matching + query-side synonym expansion (shipped)
 ⏳ **Phase 3** — auth, rate limiting, public deployment
 
-**88 tests passing** across 8 suites. Stack runs end-to-end via `docker compose up`.
+**101 tests passing** across 9 suites. Stack runs end-to-end via `docker compose up`.
 
 ---
 
@@ -27,7 +27,8 @@ After `docker compose up -d`, point a browser at **http://localhost:8000** and:
 | `/ui/seeds` | Add seed URLs via form, view current seed list |
 | `/ui/stats` | Index size, crawl queue depth, **Start Crawl** button, **CDX import** form |
 | `/ui/quarantine` | Review borderline pages — approve, reject, or rescore each |
-| `/docs` | Swagger UI for the JSON API (no auth in Phase 1) |
+| `/ui/threats` | Security event log — SSRF attempts, gzip bombs, spider traps; one-click domain block |
+| `/docs` | Swagger UI for the JSON API |
 | `/redoc` | ReDoc reference docs |
 
 The UI is **server-rendered Jinja templates, no JavaScript, no framework**. Georgia + system colors. It deliberately looks like the kind of site it's trying to surface — eats its own dog food.
@@ -65,7 +66,7 @@ flowchart TD
 - **Async:** `httpx` + `asyncio` for concurrent crawling
 - **HTML parsing:** BeautifulSoup4 + lxml (C-level parser, resistant to ReDoS)
 - **Encoding detection:** chardet on raw bytes before parsing
-- **Database:** PostgreSQL 16 with `tsvector` full-text search, `GIN` index, `ts_rank_cd` BM25-style ranking
+- **Database:** PostgreSQL 16 with `tsvector` FTS, `GIN` index, `ts_rank_cd` BM25-style ranking, `pg_trgm` for fuzzy/typo matching
 - **API:** FastAPI (no ORM — raw asyncpg for explicit query control)
 - **Templates:** Jinja2, server-rendered, no JS
 - **Task scheduler:** Celery + Redis (periodic re-crawl, CDX imports, dead link checks)
@@ -122,7 +123,7 @@ Or via the API: `GET /search?q=...&page=0&limit=10` → JSON with results, snipp
 docker compose exec api pytest tests/ -v
 ```
 
-Should report `88 passed`.
+Should report `101 passed`.
 
 ---
 
@@ -236,6 +237,8 @@ the-collector/
 │   │   ├── queue.py              # Postgres-backed crawl queue
 │   │   ├── cdx.py                # Internet Archive CDX API client
 │   │   └── worker.py             # Async fetch → filter → index pipeline
+│   ├── search/
+│   │   └── synonyms.py           # Hand-curated synonym dict + expand() helper
 │   ├── indexer/
 │   │   └── db.py                 # Upsert pages, quarantine, threat log
 │   ├── tasks/
@@ -243,7 +246,7 @@ the-collector/
 │   └── api/
 │       ├── main.py               # FastAPI app with lifespan DB pool
 │       ├── routes/
-│       │   ├── search.py         # GET /search (ts_rank_cd + ts_headline)
+│       │   ├── search.py         # GET /search (FTS + pg_trgm + synonym expansion)
 │       │   ├── seeds.py          # /seeds CRUD + bulk
 │       │   ├── crawl.py          # /crawl/start, /crawl/status
 │       │   ├── pages.py          # /pages/{id}, /stats
@@ -256,13 +259,15 @@ the-collector/
 │           ├── search.html       # Home + results
 │           ├── stats.html        # Index + crawl + CDX import form
 │           ├── seeds.html        # Add + list seeds
-│           └── quarantine.html   # Review queue
+│           ├── quarantine.html   # Review queue
+│           └── threats.html      # Security log + blocked-domains panel
 │
 ├── migrations/
 │   ├── 001_initial_schema.sql    # 6 tables + GIN index + generated tsvector
+│   ├── 002_pg_trgm.sql           # pg_trgm extension + GIN trigram index on title
 │   └── run_migrations.py         # Idempotent asyncpg runner
 │
-├── tests/                        # 88 tests across 8 suites
+├── tests/                        # 101 tests across 9 suites
 │   ├── conftest.py               # Test DB fixture, transaction rollback isolation
 │   ├── test_foundation.py        # 5 — schema, indexes, FTS, isolation
 │   ├── test_detectors.py         # 33 — all 14 signal detectors
@@ -272,6 +277,7 @@ the-collector/
 │   ├── test_crawler.py           # 3 — full crawler integration (pytest-httpserver)
 │   ├── test_api.py               # 8 — all routes via FastAPI AsyncClient
 │   ├── test_tasks.py             # 3 — Celery task import smoke tests
+│   ├── test_search_fuzzy.py      # 13 — synonym expansion + trigram matching
 │   └── fixtures/                 # HTML samples
 │
 ├── docker-compose.yml            # 5 services + health checks
@@ -361,22 +367,18 @@ docker compose exec api pytest tests/test_security.py -v
 - Crawler: security, robots, queue, fetch pipeline, link spider, frame handling
 - API: search, seeds, crawl control, pages, quarantine, threats, CDX trigger
 - Celery: re-crawl scheduler, dead-link checker, CDX batch import
-- **88 tests passing**
 
-### Phase 2: Self-Hosted & Shareable 🔄 **In progress**
-- ✅ HTML UI: search, seeds, stats, quarantine review
+### Phase 2: Self-Hosted & Shareable ✅ **Complete**
+- ✅ HTML UI: search, seeds, stats, quarantine review, threats + blocked-domains
 - ✅ CDX import trigger from UI
-- 🔄 `/ui/threats` panel (security log + one-click block-domain)
-- 🔄 Result clustering by domain (collapse same-domain duplicates in search)
-- 🔄 Multi-user seed submission (Phase 2.5)
-- 🔄 Signal weight tuner UI (live config without restart)
+- ✅ Fuzzy search: pg_trgm trigram matching + query-side synonym expansion
+- **101 tests passing** across 9 suites
 
 ### Phase 3: Public-Facing ⏳
-- Authentication & API keys
-- Per-user rate limiting
+- Authentication & API keys (single admin password + API key for JSON endpoints)
+- Per-IP rate limiting on search
 - Distributed / multi-machine crawling
 - Common Crawl integration (Phase 2 uses CDX only)
-- Optional: semantic / embedding search
 
 ---
 
@@ -437,7 +439,7 @@ Monitor `/ui/quarantine` to see what nearly makes it in — adjust thresholds an
 
 - **No auth** — Phase 1/2 is local-only. Don't expose port 8000 publicly without Phase 3 auth.
 - **Crawler container exits after queue drain** — re-trigger from `/ui/stats` or `POST /crawl/start`. Alternative: run `docker compose up crawler` again.
-- **No semantic search** — keyword-only via `ts_rank_cd`. Embedding search is Phase 3.
+- **No semantic search** — keyword + fuzzy (pg_trgm) + synonyms, but no embeddings. Semantic search is Phase 3 or later.
 - **CDX queries are synchronous within the background task** — large imports can take minutes.
 
 ---
@@ -445,7 +447,7 @@ Monitor `/ui/quarantine` to see what nearly makes it in — adjust thresholds an
 ## FAQ
 
 - **Why no Wayback Machine preservation?** Out of scope. CDX queries archived URLs to discover live ones; preserving new captures is a separate problem.
-- **Why not Elasticsearch?** Overkill. PostgreSQL FTS is fast enough for a personal-scale index and eliminates an external service.
+- **Why not Elasticsearch?** Overkill for this scale. PostgreSQL FTS + `pg_trgm` (typo tolerance) + query-side synonyms covers the meaningful gaps without an extra service to operate.
 - **Why hand-curated seeds?** Highest signal-to-noise. You know what's good; automated discovery adds noise that the signal filter has to fight against.
 - **Why 3-hop depth?** Balances neighbor-of-neighbor discovery against spider traps and noise.
 - **Why Georgia for the UI font?** It's calm and readable, ships on every OS, and isn't trying to be a brand. Old-web aesthetic.
